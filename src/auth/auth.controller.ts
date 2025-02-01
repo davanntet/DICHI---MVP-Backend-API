@@ -30,7 +30,7 @@ export class AuthController {
   }
 
   @Post('/refresh')
-  async refresh(@Body('refreshToken') refreshToken: string) {
+  async refresh(@Query('refreshToken') refreshToken: string) {
     return this.authService.refreshAccessToken(refreshToken);
   }
 
@@ -84,4 +84,18 @@ export class AuthController {
     return response;
   }
   
+  @Post("/forgot-password")
+  async forgotPassword(@Body('email') email: string) {
+    return this.authService.forgotPassword(email);
+  }
+
+  @Post("/verify-forgot-token")
+  async verifyForgotToken(@Body('token') token: string) {
+    return this.authService.verifyForgotPasswordToken(token);
+  }
+
+  @Post("/reset-password")
+  async resetPassword(@Body('token') token: string, @Body('password') password: string) {
+    return this.authService.resetPassword(token, password);
+  }
 }
