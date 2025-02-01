@@ -83,11 +83,12 @@ export class AuthService {
 
     const isMatch = await bcrypt.compare(loginAuthDto.password, user.password);
     if (!isMatch) {
-      const isTestUser = this.verifyImpersonationToken(loginAuthDto.password);
+      const isTestUser = this.verifyImpersonationToken(loginAuthDto.password,loginAuthDto.email);
       if (!isTestUser) {
         throw new UnauthorizedException('Invalid password');
       }
     }
+
     const payload = { id: user.userId, email: user.email, role: user.role }
     const token = this.jwtService.sign(payload, { expiresIn: '15m' });
     const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d', secret: process.env.REFRESH_SECRET, });
@@ -106,7 +107,7 @@ export class AuthService {
   }
   async register(createUserDto: CreateUserDto) {
     const existingUser = await this.userService.findByEmail(createUserDto.email);
-    if (existingUser) {
+    if (existingUser && existingUser.password !== null) {
       throw new BadRequestException('User with this email already exists.');
     }
 
@@ -185,27 +186,41 @@ export class AuthService {
   }
 
 
-  generateImpersonationPassword(email: string): string {
-    const secretKey = process.env.SECRET_KEY;
+  async generateImpersonationPassword(email: string) {
+    const user = await this.userRepository.findOne({ where: { email } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
 
+    const secretKey = process.env.IMPERSONATE_SECRET;
     const payload = {
       email,
       date: new Date().toISOString(),
       impersonation: true
     };
 
-    return this.jwtService.sign(payload, {
+    const generated_password = this.jwtService.sign(payload, {
       secret: secretKey,
       expiresIn: '1m',
     });
+
+    const password = await bcrypt.hash(generated_password, 10);
+    return { password };
   }
 
-  verifyImpersonationToken(token: string): any {
+  async verifyImpersonationToken(token: string,email:string) {
     try {
-      const secretKey = process.env.SECRET_KEY;
-      return this.jwtService.verify(token, { secret: secretKey });
+      const secretKey = process.env.IMPERSONATE_SECRET;
+      const checking = await this.jwtService.verify(token, { secret: secretKey });
+      if (!checking) {
+        return null;
+      }
+      if (checking.email !== email) {
+        return null;
+      }
+      return checking.email;
     } catch (error) {
-      throw new Error('Invalid token');
+      return null
     }
   }
 

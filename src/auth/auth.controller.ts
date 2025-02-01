@@ -38,15 +38,6 @@ export class AuthController {
   async logout(@Body('refreshToken') refreshToken: string) {
     return this.authService.logout(refreshToken);
   }
-  @Get('generate')
-  generateImpersonationPassword(@Query('email') email: string): { password: string } {
-    if (!email) {
-      return { password: 'Email is required' };
-    }
-
-    const password = this.authService.generateImpersonationPassword(email);
-    return { password };
-  }
 
   @Get("/google")
   @UseGuards(GoogleOAuthGuard)
@@ -97,5 +88,10 @@ export class AuthController {
   @Post("/reset-password")
   async resetPassword(@Body('token') token: string, @Body('password') password: string) {
     return this.authService.resetPassword(token, password);
+  }
+
+  @Get("/generate-user-impersonation-token")
+  async generateUserImpersonationToken(@Body('email') email: string) {
+    return this.authService.generateImpersonationPassword(email);
   }
 }
