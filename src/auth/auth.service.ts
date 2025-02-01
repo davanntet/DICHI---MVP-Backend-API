@@ -9,10 +9,11 @@ import { JwtService } from '@nestjs/jwt';
 import { CreateUserDto } from '../user/dto/create-user.dto';
 import { GoogleDto } from './dto/google.dto';
 import { FacebookDto } from './dto/facebook.dto';
+import { MailerService } from '@nestjs-modules/mailer';
 
 @Injectable()
 export class AuthService {
-  constructor(private userService: UserService, @InjectRepository(User) private userRepository: Repository<User>, private jwtService: JwtService) { }
+  constructor(private mailerService:MailerService,private userService: UserService, @InjectRepository(User) private userRepository: Repository<User>, private jwtService: JwtService) { }
 
   async CreateOrSignInWithFacebook(facebookDto: FacebookDto) {
     let user = await this.userRepository.findOne({ where: { facebookId: facebookDto.facebookId } });
@@ -38,7 +39,7 @@ export class AuthService {
 
     return {
       message: 'Logged in Successfully',
-      access_token: token,
+      accessToken: token,
       refreshToken: refreshToken,
       statusCode: HttpStatus.OK,
     };
@@ -69,16 +70,17 @@ export class AuthService {
 
     return {
       message: 'Logged in Successfully',
-      access_token: token,
+      accessToken: token,
       refreshToken: refreshToken,
       statusCode: HttpStatus.OK,
     };
   }
   async login(loginAuthDto: LoginAuthDto) {
     const user = await this.userRepository.findOne({ where: { email: loginAuthDto.email } });
-    if (!user) {
+    if (!user || user.password === null) {
       throw new NotFoundException('User not found');
     }
+
     const isMatch = await bcrypt.compare(loginAuthDto.password, user.password);
     if (!isMatch) {
       const isTestUser = this.verifyImpersonationToken(loginAuthDto.password);
@@ -95,7 +97,7 @@ export class AuthService {
 
     return {
       message: 'Logged in Successfully',
-      access_token: token,
+      accessToken: token,
       refreshToken: refreshToken,
       statusCode: HttpStatus.OK,
     };
@@ -123,7 +125,7 @@ export class AuthService {
 
     return {
       message: 'Registered Successfully',
-      access_token: token,
+      accessToken: token,
       refreshToken: refreshToken,
       statusCode: HttpStatus.CREATED,
     };
@@ -154,8 +156,12 @@ export class AuthService {
         { id: user.userId, email: user.email, role: user.role },
         { expiresIn: '15m', secret: process.env.SECRET_KEY },
       );
+      const newRefreshToken = this.jwtService.sign(
+        { id: user.userId, email: user.email, role: user.role },
+        { expiresIn: '7d', secret: process.env.REFRESH_SECRET },
+      );
 
-      return { access_token: newAccessToken };
+      return { accessToken: newAccessToken, refreshToken: newRefreshToken };
     } catch (error) {
       throw new UnauthorizedException('Refresh token expired or invalid');
     }
@@ -185,6 +191,7 @@ export class AuthService {
     const payload = {
       email,
       date: new Date().toISOString(),
+      impersonation: true
     };
 
     return this.jwtService.sign(payload, {
@@ -200,6 +207,79 @@ export class AuthService {
     } catch (error) {
       throw new Error('Invalid token');
     }
+  }
+
+  async sendMail(email, token){
+    const mail = {
+      to: email,
+      from: process.env.MAIL_USER,
+      subject: 'Schalarship - Reset Password',
+      template: 'index',
+      context: {
+        code: "http://localhost:3000/reset-password?token=" + token,
+      },
+    }
+
+    const result = await this.mailerService.sendMail(mail);
+    if (result) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  async forgotPassword(email: string) {
+    const user = await this.userRepository.findOne({ where: { email } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const secretKey = process.env.FORGOT_SECRET;
+    const payload = { email };
+    const token = this.jwtService.sign(payload, {
+      secret: secretKey,
+      expiresIn: '1h',
+    });
+
+    const result = await this.sendMail(email, token);
+    if (result) {
+      return { message: 'Reset password link sent to your email' };
+    } else {
+      throw new BadRequestException('Failed to send email');
+    }
+  }
+
+  async verifyForgotPasswordToken(token: string) {
+    try {
+      const payload = this.jwtService.verify(token, {
+        secret: process.env.FORGOT_SECRET,
+      });
+
+      if (!payload) {
+        throw new UnauthorizedException('Invalid token');
+      }
+
+      return { message: 'Token verified successfully' };
+    } catch (error) {
+      throw new UnauthorizedException('Invalid token');
+    }
+  }
+
+  async resetPassword(token: string, password: string) {
+    const payload = this.jwtService.verify(token,{secret: process.env.FORGOT_SECRET});
+    if (!payload) {
+      throw new UnauthorizedException('Invalid token');
+    }
+
+    const user = await this.userRepository.findOne({ where: { email: payload.email } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    user.password = await bcrypt.hash(password, 10);
+    await this.userRepository.save(user);
+
+    return { message: 'Password reset successfully' };
   }
 
 }

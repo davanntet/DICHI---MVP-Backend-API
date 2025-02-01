@@ -14,17 +14,6 @@ export class AppController {
     return this.appService.getHello();
   }
 
-  @Get("/mail")
-  sendMail() {
-    const result = this.appService.sendMail(
-      "davanntet@gmail.com",
-      123456
-    )
-    if (result) {
-      return "Mail sent successfully"
-    }
-    return "Mail failed to send"
-  }
 
   @MessagePattern('fastapi_queue')
   handleRabbitMQMessage(@Payload() message: any, @Ctx() context: RmqContext) {
