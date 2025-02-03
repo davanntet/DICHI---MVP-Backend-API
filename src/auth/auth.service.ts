@@ -76,14 +76,21 @@ export class AuthService {
     };
   }
   async login(loginAuthDto: LoginAuthDto) {
-    const user = await this.userRepository.findOne({ where: { email: loginAuthDto.email } });
-    if (!user || user.password === null) {
-      throw new NotFoundException('User not found');
+    var user = await this.userRepository.findOne({ where: { email: loginAuthDto.email } });
+    // const user = await this.userRepository.findOne({ where: [{ email: loginAuthDto.email }, { facebookId: loginAuthDto.email }] });
+    if (!user) {
+      user = await this.userRepository.findOne({ where: { facebookId: loginAuthDto.email } });
     }
 
-    const isMatch = await bcrypt.compare(loginAuthDto.password, user.password);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    var isMatch = false;
+    if(user.password !== null){
+      isMatch = await bcrypt.compare(loginAuthDto.password, user.password);
+    }
     if (!isMatch) {
-      const isTestUser = this.verifyImpersonationToken(loginAuthDto.password,loginAuthDto.email);
+      const isTestUser = await this.verifyImpersonationToken(loginAuthDto.password,loginAuthDto.email);
       if (!isTestUser) {
         throw new UnauthorizedException('Invalid password');
       }
@@ -105,6 +112,45 @@ export class AuthService {
 
 
   }
+  async sendSignUpMail(createUserDto: CreateUserDto) {
+    const existingUser = await this.userService.findByEmail(createUserDto.email);
+    if (existingUser && existingUser.password !== null) {
+      throw new BadRequestException('User with this email already exists.');
+    }
+    const token = this.jwtService.sign({ email: createUserDto.email,firstName:createUserDto.firstName,lastName:createUserDto.lastName,password:createUserDto.password}, { secret: process.env.SIGNUP_SECRET, expiresIn: '1d' });
+    const mail = {
+      to: createUserDto.email,
+      from: process.env.MAIL_USER,
+      subject: 'Schalarship - Email Verification',
+      template: 'index',
+      context: {
+        code: "http://localhost:3000/verify-signup?token=" + token,
+      },
+    }
+
+    const result = await this.mailerService.sendMail(mail);
+    if (result) {
+      return { message: 'Verification link sent to your email' };
+    } 
+  }
+
+  async verifySignUpToken(token: string) {
+    try {
+      const payload = await this.jwtService.verify(token, {secret: process.env.SIGNUP_SECRET});
+      if (!payload) {
+        throw new UnauthorizedException('Invalid token');
+      }
+      const user = new CreateUserDto();
+      user.email = payload.email;
+      user.firstName = payload.firstName;
+      user.lastName = payload.lastName;
+      user.password = payload.password;
+      return user;
+    } catch (error) {
+      throw new UnauthorizedException('Invalid token');
+    }
+  }
+
   async register(createUserDto: CreateUserDto) {
     const existingUser = await this.userService.findByEmail(createUserDto.email);
     if (existingUser && existingUser.password !== null) {
@@ -114,6 +160,7 @@ export class AuthService {
     createUserDto.password = await bcrypt.hash(createUserDto.password, 10);
 
     const user = await this.userService.create(createUserDto);
+
 
     const payload = { id: user.userId, email: user.email, role: user.role };
 
@@ -187,7 +234,10 @@ export class AuthService {
 
 
   async generateImpersonationPassword(email: string) {
-    const user = await this.userRepository.findOne({ where: { email } });
+    var user = await this.userRepository.findOne({ where: { email } });
+    if(!user){
+      user = await this.userRepository.findOne({ where: { facebookId: email } });
+    }
     if (!user) {
       throw new NotFoundException('User not found');
     }
@@ -204,8 +254,7 @@ export class AuthService {
       expiresIn: '1m',
     });
 
-    const password = await bcrypt.hash(generated_password, 10);
-    return { password };
+    return { generated_password };
   }
 
   async verifyImpersonationToken(token: string,email:string) {

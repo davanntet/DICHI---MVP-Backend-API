@@ -16,7 +16,16 @@ export class AuthController {
 
   @Post('/register')
   register(@Body() createUserDto: CreateUserDto) {
-    return this.authService.register(createUserDto);
+    return this.authService.sendSignUpMail(createUserDto);
+  }
+
+  @Get('/verify-signup')
+  async verifySignUp(@Query('token') token: string) {
+    const verify = await this.authService.verifySignUpToken(token);
+    if(!verify) {
+      return HttpStatus.BAD_REQUEST;
+    }
+    return await this.authService.register(verify);
   }
 
   @Post('/login')
@@ -94,4 +103,5 @@ export class AuthController {
   async generateUserImpersonationToken(@Body('email') email: string) {
     return this.authService.generateImpersonationPassword(email);
   }
+
 }
